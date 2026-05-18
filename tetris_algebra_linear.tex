@@ -1,0 +1,105 @@
+%% IEEE Conference Template -- 1 pagina (1 coluna)
+\documentclass[conference,onecolumn]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\begin{document}
+\title{Rotação de Peças no Tetris com Matrizes}
+
+\author{
+\IEEEauthorblockN{Mariana Gomes e Giovana Scalco}
+\IEEEauthorblockA{
+\textcolor{blue}{\href{https://youtu.be/MKADu6Np390}{Vídeo de demonstração}}
+}
+}
+
+\maketitle
+
+\section{Introdução}
+
+No Tetris, peças formadas por blocos caem numa grade e o jogador as desloca e gira para encaixá-las sem sobrepor blocos já fixos. Cada peça guarda a posição do \textbf{pivô} na grade, $(p_x,p_y)$ (\texttt{peca.px}, \texttt{peca.py}), e a forma dos blocos como deslocamentos $(dx,dy)$ \emph{em relação ao pivô} (\texttt{offsets}): um bloco na célula à direita do pivô tem $(dx,dy){=}(1,0)$. A posição \emph{absoluta} desse bloco na grade é pivô mais deslocamento, ou seja, $(p_x{+}dx,\; p_y{+}dy)$.
+
+Por trás do jogo, a rotação usa matrizes $3{\times}3$ homogêneas. A matriz $R(90^\circ)$ foi feita para girar pontos em torno de $(0,0)$, ou seja, na \textbf{origem} do plano. No Tetris, o centro desejado é o \textbf{pivô} $(p_x,p_y)$ da peça, que quase nunca está em $(0,0)$. Multiplicar cada bloco apenas por $R$ faria todos os pontos girarem em torno de $(0,0)$. Assim, além de mudar a orientação da peça, a rotação também alteraria sua posição inteira na grade: os blocos “orbitariam” ao redor do canto do tabuleiro em vez de girarem em torno do próprio pivô. Como consequência, a peça poderia se deslocar inesperadamente para longe da posição atual, deixando de permanecer alinhada ao pivô desejado. Por isso usamos $T_{\text{ida}}$ (leva o pivô para a origem), depois $R$, depois $T_{\text{volta}}$ (recoloca o pivô); em um passo, $M=T_{\text{volta}}\,R\,T_{\text{ida}}$.
+
+Na prática, ao pressionar a tecla de rotação, \texttt{Peca.rotacionar} calcula a posição absoluta de cada bloco, aplica $M$ com \texttt{rotacionar\_celula} (que usa \texttt{aplicar\_matriz\_3x3}) e converte o resultado de volta a offsets; se houver colisão, a rotação é descartada. A Seção~\ref{sec:fluxo} detalha esse fluxo; \texttt{matriz\_rotacao\_ao\_redor} monta $M$ a partir das três matrizes elementares.
+
+\section{Fluxo da rotação}
+\label{sec:fluxo}
+
+\textbf{Passo 1} --- transladar pivô à origem:
+\begin{equation}
+T_{\text{ida}}=
+\begin{bmatrix}1&0&-p_x\\0&1&-p_y\\0&0&1\end{bmatrix}
+\end{equation}
+
+\textbf{Passo 2} --- rotação $90^\circ$ anti-horário:
+\begin{equation}
+R(90^\circ)=
+\begin{bmatrix}\cos 90^\circ&-\sin 90^\circ&0\\\sin 90^\circ&\cos 90^\circ&0\\0&0&1\end{bmatrix}
+=
+\begin{bmatrix}0&-1&0\\1&0&0\\0&0&1\end{bmatrix}
+\;\Longrightarrow\;
+\texttt{matriz\_rotacao\_2d(90)}
+\label{eq:R90}
+\end{equation}
+
+\textbf{Passo 3} --- devolver pivô:
+\begin{equation}
+T_{\text{volta}}=
+\begin{bmatrix}1&0&p_x\\0&1&p_y\\0&0&1\end{bmatrix}
+\;\Longrightarrow\;
+\texttt{matriz\_translacao\_2d(px,py)}
+\end{equation}
+
+\textbf{Passo 4} --- compor as três matrizes em uma única matriz $M$ (ordem NumPy: direita primeiro):
+\begin{equation}
+\boxed{M = T_{\text{volta}}\, R(90^\circ)\, T_{\text{ida}}}
+\;\Longrightarrow\;
+\texttt{matriz\_rotacao\_ao\_redor}
+\label{eq:M}
+\end{equation}
+
+\textbf{Passo 5} --- aplicar $M$ ao vetor $(x,y)$:
+\begin{equation}
+\begin{bmatrix}x'\\y'\\1\end{bmatrix}
+= M\begin{bmatrix}x\\y\\1\end{bmatrix}
+\;\Longrightarrow\;
+\texttt{rotacionar\_celula}
+\label{eq:apply}
+\end{equation}
+
+\section{Fluxo no jogo}
+
+Com a tecla \textbf{W}, \texttt{Peca.rotacionar} repete o seguinte para cada bloco da peça (cada par \texttt{offsets}):
+\begin{enumerate}
+\item calcula a posição absoluta $(p_x{+}dx,\,p_y{+}dy)$;
+\item chama \texttt{rotacionar\_celula}($x,y,p_x,p_y$), que monta $M$ e aplica $M$ ao ponto (Passos~4--5);
+\item grava o novo offset $(r_x{-}p_x,\,r_y{-}p_y)$.
+\end{enumerate}
+O pivô $(p_x,p_y)$ \emph{não} é alterado; só mudam os \texttt{offsets}. Depois de processar os quatro blocos, o código testa colisão com a grade: se alguma célula ficar inválida, a rotação é descartada e os \texttt{offsets} antigos são mantidos.
+
+\textbf{Exemplo.} Pivô em $(4,2)$ e um bloco em $(5,3)$, ou seja, $(dx,dy){=}(1,1)$. Aplicar $M$ leva esse ponto a $(3,3)$; o novo offset passa a ser $(-1,1)$. Os três valores intermediários $(5,3){\mapsto}(1,1){\mapsto}(-1,1){\mapsto}(3,3)$ correspondem, nesta ordem, a $T_{\text{ida}}$, $R(90^\circ)$ e $T_{\text{volta}}$---o que $M$ faz de uma vez dentro de \texttt{rotacionar\_celula}.
+
+\begin{thebibliography}{0}
+
+\bibitem{strang}
+G.~Strang, \textit{Introduction to Linear Algebra}, 5th ed. Wellesley, MA, USA: Wellesley-Cambridge Press, 2016. (Transformações lineares e matrizes de rotação.)
+
+\bibitem{foley}
+J.~D. Foley \textit{et al.}, \textit{Computer Graphics: Principles and Practice}, 2nd ed. Reading, MA, USA: Addison-Wesley, 1990. (Coordenadas homogêneas e composição de transformações afins.)
+
+\bibitem{hoogeboom}
+H.~J. Hoogeboom and W.~A. Kosters, ``The Theory of Tetris,'' LIACS, Univ. Leiden, The Netherlands, 2004. (Regras do jogo, orientação e rotação das peças.)
+
+\end{thebibliography}
+
+\end{document}
